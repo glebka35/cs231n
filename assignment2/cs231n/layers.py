@@ -205,16 +205,17 @@ def batchnorm_forward(x, gamma, beta, bn_param):
     - out: of shape (N, D)
     - cache: A tuple of values needed in the backward pass
     """
-    mode = bn_param["mode"]
-    eps = bn_param.get("eps", 1e-5)
-    momentum = bn_param.get("momentum", 0.9)
+    mode = bn_param['mode']
+    eps = bn_param.get('eps', 1e-5)
+    momentum = bn_param.get('momentum', 0.9)
 
+    x = x.reshape(x.shape[0], -1)
     N, D = x.shape
-    running_mean = bn_param.get("running_mean", np.zeros(D, dtype=x.dtype))
-    running_var = bn_param.get("running_var", np.zeros(D, dtype=x.dtype))
+    running_mean = bn_param.get('running_mean', np.zeros(D, dtype=x.dtype))
+    running_var = bn_param.get('running_var', np.zeros(D, dtype=x.dtype))
 
     out, cache = None, None
-    if mode == "train":
+    if mode == 'train':
         #######################################################################
         # TODO: Implement the training-time forward pass for batch norm.      #
         # Use minibatch statistics to compute the mean and variance, use      #
@@ -236,26 +237,31 @@ def batchnorm_forward(x, gamma, beta, bn_param):
         # Referencing the original paper (https://arxiv.org/abs/1502.03167)   #
         # might prove to be helpful.                                          #
         #######################################################################
-        # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
-
-        pass
-
-        # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
+        cur_x = copy.deepcopy(x)
+        sample_mean = np.mean(cur_x, axis=0)
+        sample_var = np.var(x, axis=0)
+        running_mean = momentum * running_mean + (1 - momentum) * sample_mean
+        running_var = momentum * running_var + (1 - momentum) * sample_var
+        normalized_data = (cur_x - sample_mean) / (np.sqrt(sample_var) + eps)
+        out = gamma * normalized_data + beta
+        cache = {'x_minus_mean': (x - sample_mean),
+                'normalized_data': normalized_data,
+                'gamma': gamma,
+                'ivar': 1./np.sqrt(sample_var + eps),
+                'sqrtvar': np.sqrt(sample_var + eps),
+                }
         #######################################################################
         #                           END OF YOUR CODE                          #
         #######################################################################
-    elif mode == "test":
+    elif mode == 'test':
         #######################################################################
         # TODO: Implement the test-time forward pass for batch normalization. #
         # Use the running mean and variance to normalize the incoming data,   #
         # then scale and shift the normalized data using gamma and beta.      #
         # Store the result in the out variable.                               #
         #######################################################################
-        # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
-
-        pass
-
-        # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
+        cur_x = (x - running_mean) / (np.sqrt(running_var) + eps)
+        out = gamma * cur_x + beta
         #######################################################################
         #                          END OF YOUR CODE                           #
         #######################################################################
@@ -263,8 +269,8 @@ def batchnorm_forward(x, gamma, beta, bn_param):
         raise ValueError('Invalid forward batchnorm mode "%s"' % mode)
 
     # Store the updated running means back into bn_param
-    bn_param["running_mean"] = running_mean
-    bn_param["running_var"] = running_var
+    bn_param['running_mean'] = running_mean
+    bn_param['running_var'] = running_var
 
     return out, cache
 
@@ -294,7 +300,29 @@ def batchnorm_backward(dout, cache):
     ###########################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-    pass
+    N, D = dout.shape
+    normalized_data = cache.get('normalized_data')
+    gamma = cache.get('gamma')
+    ivar = cache.get('ivar')
+    x_minus_mean = cache.get('x_minus_mean')
+    sqrtvar = cache.get('sqrtvar')
+
+    dbeta = np.sum(dout, axis=0)
+    dgamma = np.sum(dout * normalized_data, axis=0)
+
+
+    dxhat = dout * gamma
+    dxmu1 = dxhat * ivar
+    divar = np.sum(dxhat*x_minus_mean, axis=0)
+    dsqrtvar = divar * (-1./sqrtvar**2)
+    dvar = dsqrtvar * 0.5 * (1./sqrtvar)
+    dsq = (1/N)*dvar*np.ones_like(dout)
+    dxmu2 = dsq * 2 * x_minus_mean
+
+    dx1 = dxmu1 + dxmu2
+    dmu = - 1 * np.sum(dxmu1+dxmu2, axis=0)
+    dx2 = (1. / N) * dmu * np.ones_like(dout)
+    dx = dx2 + dx1
 
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     ###########################################################################
@@ -328,7 +356,18 @@ def batchnorm_backward_alt(dout, cache):
     ###########################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-    pass
+    N, D = dout.shape
+    normalized_data = cache.get('normalized_data')
+    gamma = cache.get('gamma')
+    ivar = cache.get('ivar')
+    x_minus_mean = cache.get('x_minus_mean')
+    sqrtvar = cache.get('sqrtvar')
+
+    dbeta = np.sum(dout, axis=0)
+    dgamma = np.sum(dout * normalized_data, axis=0)
+    dxhat = dout * gamma
+    dx = (1. / N) * ivar * (N * dxhat - np.sum(dxhat, axis=0) 
+		- normalized_data*np.sum(dxhat*normalized_data, axis=0))
 
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     ###########################################################################
@@ -373,7 +412,20 @@ def layernorm_forward(x, gamma, beta, ln_param):
     ###########################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-    pass
+    cur_x = copy.deepcopy(x)
+    cur_x = cur_x.T
+    mu = np.mean(cur_x, axis=0)
+    var = np.var(cur_x, axis=0)  
+    normalized_data = (cur_x - mu) / (np.sqrt(var) + eps)
+    normalized_data = normalized_data.T
+    out = gamma * normalized_data + beta
+    cache = {'x' : x,
+            'mu' : mu,
+            'normalized_data': normalized_data, #'x_minus_mean': (x - mu),
+            'gamma': gamma,
+            'ivar': 1./np.sqrt(var + eps),
+            'sqrtvar': np.sqrt(var + eps),
+            }
 
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     ###########################################################################
@@ -407,7 +459,26 @@ def layernorm_backward(dout, cache):
     ###########################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-    pass
+    N, D = dout.shape
+    normalized_data = cache.get('normalized_data')
+    x = cache.get('x')
+    mu = cache.get('mu')
+    gamma = cache.get('gamma')
+    ivar = cache.get('ivar')
+    sqrtvar = cache.get('sqrtvar')
+
+    dbeta = np.sum(dout, axis=0)
+    dgamma = np.sum(dout * normalized_data, axis=0)
+
+    dxhat = dout * gamma
+    normalized_data = normalized_data.T
+
+    N, D = normalized_data.shape
+
+    dx = (1. / N) * ivar * (N * dxhat.T - np.sum(dxhat.T, axis=0) 
+		- normalized_data*np.sum(dxhat.T*normalized_data, axis=0))
+
+    dx = dx.T
 
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     ###########################################################################
@@ -417,12 +488,8 @@ def layernorm_backward(dout, cache):
 
 
 def dropout_forward(x, dropout_param):
-    """Forward pass for inverted dropout.
-
-    Note that this is different from the vanilla version of dropout.
-    Here, p is the probability of keeping a neuron output, as opposed to
-    the probability of dropping a neuron output.
-    See http://cs231n.github.io/neural-networks-2/#reg for more details.
+    """
+    Performs the forward pass for (inverted) dropout.
 
     Inputs:
     - x: Input data, of any shape
@@ -438,36 +505,36 @@ def dropout_forward(x, dropout_param):
     - out: Array of the same shape as x.
     - cache: tuple (dropout_param, mask). In training mode, mask is the dropout
       mask that was used to multiply the input; in test mode, mask is None.
+
+    NOTE: Please implement **inverted** dropout, not the vanilla version of dropout.
+    See http://cs231n.github.io/neural-networks-2/#reg for more details.
+
+    NOTE 2: Keep in mind that p is the probability of **keep** a neuron
+    output; this might be contrary to some sources, where it is referred to
+    as the probability of dropping a neuron output.
     """
-    p, mode = dropout_param["p"], dropout_param["mode"]
-    if "seed" in dropout_param:
-        np.random.seed(dropout_param["seed"])
+    p, mode = dropout_param['p'], dropout_param['mode']
+    if 'seed' in dropout_param:
+        np.random.seed(dropout_param['seed'])
 
     mask = None
     out = None
 
-    if mode == "train":
+    if mode == 'train':
         #######################################################################
         # TODO: Implement training phase forward pass for inverted dropout.   #
         # Store the dropout mask in the mask variable.                        #
         #######################################################################
-        # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
-
-        pass
-
-        # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
+        mask = (np.random.rand(*x.shape) < p) / p # first dropout mask. Notice /p!
+        out = x * mask
         #######################################################################
         #                           END OF YOUR CODE                          #
         #######################################################################
-    elif mode == "test":
+    elif mode == 'test':
         #######################################################################
         # TODO: Implement the test phase forward pass for inverted dropout.   #
         #######################################################################
-        # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
-
-        pass
-
-        # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
+        out = x
         #######################################################################
         #                            END OF YOUR CODE                         #
         #######################################################################
