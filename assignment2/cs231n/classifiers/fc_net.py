@@ -1,6 +1,7 @@
 from builtins import range
 from builtins import object
 import numpy as np
+import copy
 
 from ..layers import *
 from ..layer_utils import *
@@ -74,7 +75,14 @@ class FullyConnectedNet(object):
         ############################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-        pass
+        sizes = np.hstack((np.array([input_dim]), np.array(hidden_dims), np.array([num_classes])))
+        for i in range(1, self.num_layers+1):
+            self.params['W'+str(i)] = weight_scale * np.random.randn(sizes[i-1], sizes[i])
+            self.params['b'+str(i)] = np.zeros(sizes[i])
+        if(self.normalization=='batchnorm'):
+            for i in range(1, self.num_layers):
+                self.params['gamma'+str(i)] = np.ones(sizes[i-1])
+                self.params['beta'+str(i)] = np.zeros(sizes[i-1])
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         ############################################################################
@@ -148,7 +156,31 @@ class FullyConnectedNet(object):
         ############################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-        pass
+        input = copy.deepcopy(X)
+        cache = []
+        cache_batch = []
+        cache_dropout = []
+        for i in range(1, self.num_layers):
+            cur_output = 0
+            w = self.params['W'+str(i)]
+            b = self.params['b'+str(i)]
+
+            if(self.normalization=='batchnorm'):
+                input, cur_batch_cache = batchnorm_forward(input, self.params['gamma'+str(i)],
+                                                            self.params['beta'+str(i)], self.bn_params[i-1])
+                cache_batch.append(cur_batch_cache)
+            
+            cur_output, cur_cache = affine_relu_forward(input, w, b)
+            cache.append(cur_cache)
+            
+            if (self.use_dropout):
+                cur_output, cur_dropout_cache = dropout_forward(cur_output, self.dropout_param)
+                cache_dropout.append(cur_dropout_cache)
+            
+            input = cur_output
+        scores, cur_cache = affine_forward(input, self.params['W'+str(self.num_layers)], 
+                                self.params['b'+str(self.num_layers)])
+        cache.append(cur_cache)
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         ############################################################################
@@ -175,7 +207,32 @@ class FullyConnectedNet(object):
         ############################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-        pass
+        loss, d_sc = softmax_loss(scores, y)
+        matrix_sum = 0
+        for i in range(1, self.num_layers+1):
+            cur_w = self.params['W'+str(i)]
+            matrix_sum += np.sum(cur_w * cur_w)
+        loss += 0.5 * self.reg * matrix_sum
+
+        d_h, d_w, d_b = affine_backward(d_sc, cache[-1])
+        cur_w = self.params['W'+str(self.num_layers)]
+        grads['W'+str(self.num_layers)] = d_w + self.reg * cur_w
+        grads['b'+str(self.num_layers)] = d_b
+
+        for i in range(self.num_layers-1, 0, -1):
+            if (self.use_dropout):
+                d_h = dropout_backward(d_h, cache_dropout[i-1])
+            
+            d_h, d_w, d_b = affine_relu_backward(d_h, cache[i-1])
+            
+            if(self.normalization=='batchnorm'):
+                d_h, d_gamma, d_beta = batchnorm_backward_alt(d_h, cache_batch[i-1])
+                grads['gamma'+str(i)] = d_gamma
+                grads['beta'+str(i)] = d_beta
+            
+            cur_w = self.params['W'+str(i)]
+            grads['W'+str(i)] = d_w + self.reg * cur_w
+            grads['b'+str(i)] = d_b
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         ############################################################################
